@@ -1,0 +1,543 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>crimer</title>
+<script src="https://cdn.firebase.com/v0/firebase.js"></script>
+<script src="https://cdn.firebase.com/v0/firebase-auth-client.js"></script>
+<script src="md5-min.js"></script>
+<style>
+#cont td a {
+    display: block;
+    width: 44px;
+    height: 44px;
+}
+
+.pane {
+    width: 100%;
+    position: absolute;
+    top: 50px; /* h1.bottom */
+    bottom: 80px; /* bottom.top */
+    left: 0;
+    right: 0;
+    background: #ffffcc;
+    display: none;
+    overflow-y: auto;
+}
+#cont {
+    position: absolute;
+    left: 110px;
+    right: 110px;
+    top: 0;
+    bottom: 0;
+    text-align: center;
+    background: #ffcccc;
+    border: 1px solid green;
+}
+#cont table {
+    border-collapse: collapse;
+    margin: 1% auto;
+}
+img#cri { position: absolute; left: 0; width: 100px; top: 50%; margin-top: -72px; }
+img#pol { position: absolute; right: 0; width: 100px; top: 50%; margin-top: -63px; }
+
+header {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 50px;
+    text-align: center;
+    margin: 0;
+    padding: 0;
+    line-height: 50px;
+}
+header h1 {
+    text-align: center;
+    margin: 0;
+    padding: 0;
+    line-height: 50px;
+}
+#bottom {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 80px;
+    text-align: center;
+    margin: 0;
+    padding: 0;
+}
+
+#login div {
+    float: left;
+    min-width: 320px;
+    background: #ffaaaa;
+    margin: 1em;
+    padding: 1em;
+}
+#login form label, #login form label input {
+    display: block;
+}
+#login h2 {
+    margin: 0;
+}
+
+header #logout {
+    position: absolute;
+    right: 0;
+    top: 0;
+    display: none;
+}
+
+#cont table td a {
+    border: 1px solid blue;
+    background: #888;
+}
+#cont table td.available a {
+     background: #ccffff;
+}
+#cont table td.available a:hover {
+     background: #eeffff;
+}
+
+#cont table td.crimer a::before {
+    content: "C";
+}
+#cont table td.detetcive a::before {
+    content: "D";
+}
+#cont table td.evidence a::before {
+    content: "E";
+}
+#cont table td.evidence.detetcive a::before {
+    content: "DE";
+}
+#cont table td.available.crimer_possible a, #cont table td.available.detetcive_possible a, #cont table td.available.evidence_possible a {
+    background: #66ff66;
+}
+#cont table td.detetcive.crimer a::before {
+    content: "DC";
+}
+
+</style>
+</head>
+<body>
+<header>
+    <h1>crimer</h1>
+    <a id="logout" href="#">logout <span id="logout-email">...</span></a>
+</header>
+<div id="login" class="pane">
+    <div>
+        <h2>sign in to your account</h2>
+        <p id="signin-error"></p>
+        <form id="form-signin">
+            <label>email <input type="email" required id="signin-email"></label>
+            <label>password <input type="password" required id="signin-password"></label>
+            <label><input type="submit" value="sign in"></label>
+        </form>
+    </div>
+    <div>
+        <h2>...or sign up if you don't have an account</h2>
+        <p id="signup-error"></p>
+        <form id="form-signup">
+            <label>email <input type="email" required id="signup-email"></label>
+            <label>password <input type="password" required id="signup-password1"></label>
+            <label>confirm password <input type="password" required id="signup-password2"></label>
+            <label><input type="submit" value="sign up"></label>
+        </form>
+    </div>
+</div>
+
+<div id="games" class="pane">
+    <h1>Existing games</h1>
+    <ul id="existing-games"></ul>
+    <h1>Challenge someone to a game</h1>
+    <form id="form-challenge">
+        <label>email address of opponent <input type="email" required id="challenge-email"></label>
+        <label><input type="submit" value="challenge"></label>
+    </form>
+</div>
+
+<div id="game" class="pane">
+    <img id="cri" src="crimer.png">
+    <div id="cont">
+    </div>
+    <img id="pol" src="police.png">
+</div>
+<div id="bottom">
+
+</div>
+<script>
+(function() {
+function res() {
+    var c = document.getElementById("cont");
+    var w = (c.offsetWidth / 5) - 10;
+    var h = (c.offsetHeight / 5) - 10;
+    var s = Math.min(w, h);
+    Array.prototype.slice.call(document.querySelectorAll("#cont a")).forEach(function(a) {
+        a.style.width = s + "px";
+        a.style.height = s + "px";
+    })
+}
+window.onresize = res;
+
+document.getElementById("logout").onclick = function() {
+    auth.logout();
+    location.reload();
+    return false;
+}
+
+function showPane(pane) {
+    Array.prototype.slice.call(document.querySelectorAll(".pane")).forEach(function(p) {
+        p.style.display = "none";
+    });
+    if (pane && document.getElementById(pane)) document.getElementById(pane).style.display = "block";
+}
+
+function Game(dataref, myemail, oppoemail, elLinkToMe, elBoardContainer, elStatus) {
+
+    var gamedata = dataref.val();
+    var gamewith = document.createTextNode(""),
+        movecount = document.createTextNode(""),
+        whosgo = document.createTextNode("");
+    var event_handlers = {},
+        that = this,
+        i_am_crimer = gamedata.crimer === hex_md5(myemail);
+    var i_am_detetcive = !i_am_crimer;
+    var crimer_to_move = true; // crimer moves first. This gets changed by moves.
+    var crimer_position = [-1,-1], detetcive_position = [-1,-1], evidence_positions = [];
+
+    this.container = elBoardContainer;
+    this.statusdiv = elStatus;
+
+    var tbl = document.createElement("table");
+    for (var r=0; r<5; r++) {
+        var tr = document.createElement("tr");
+        for (var c=0; c<5; c++) {
+            var td = document.createElement("td");
+            var a = document.createElement("a");
+            td.appendChild(a);
+            tr.appendChild(td);
+            (function(x, y, a) {
+                a.onclick = function() {
+                    console.log("clicked:"+x+","+y);
+                    if ((" " + a.parentNode.className + " ").replace(/[\n\t]/g, " ").indexOf("available") > -1) {
+                        console.log("and it is allowed");
+                        var action = JSON.parse(a.parentNode.getAttribute("data-action"));
+                        console.log(action);
+                        if (action) {
+                            dataref.ref().child("moves").push(action);
+                            // now the onadded handler should take over
+                        }
+                    } else {
+                        console.log("and it is disallowed, so ignore");
+                    }
+                    return false;
+                }
+            })(c, r, a);
+        }
+        tbl.appendChild(tr);
+    }
+    this.container.appendChild(tbl);
+
+    this.on = function(evname, handler) {
+        if (event_handlers[evname] === undefined) event_handlers[evname] = [];
+        event_handlers[evname].push(handler);
+    }
+    this.fire = function(evname) {
+        if (event_handlers[evname] === undefined) return;
+        event_handlers[evname].forEach(function(handler) {
+            handler.call(that);
+        });
+    }
+
+    function announce_and_prepare_for_move(gameover) {
+        if (winner === "crimer") {
+            if (i_am_crimer) {
+                whosgo.nodeValue = "I won!"
+            } else {
+                whosgo.nodeValue = "I lost"
+            }
+        } else if (winner === "detetcive") {
+            if (i_am_detetcive) {
+                whosgo.nodeValue = "I won!"
+            } else {
+                whosgo.nodeValue = "I lost"
+            }
+        } else {
+            whosgo.nodeValue = i_am_crimer == crimer_to_move ? "(my move)" : "(their move)";
+        }
+        // position squares correctly
+        var squares = [];
+        for (var r=0; r<5; r++) {
+            var row = [];
+            for (var c=0; c<5; c++) row.push({classes: [], action: null});
+            squares.push(row);
+        }
+
+        evidence_positions.forEach(function(ep) {
+            squares[ep[1]][ep[0]].classes.push("evidence");
+        });
+
+        if (crimer_position[0] != -1)
+            squares[crimer_position[1]][crimer_position[0]].classes.push("crimer");
+        if (detetcive_position[0] != -1)
+            squares[detetcive_position[1]][detetcive_position[0]].classes.push("detetcive");
+
+        if (crimer_to_move && i_am_crimer) {
+            // eight ways from current position
+            for (var dx=-1; dx<2; dx++) {
+                for (var dy=-1; dy<2; dy++) {
+                    if (dx==0 && dy==0) continue;
+                    var blocked = false;
+                    var cx = crimer_position[0]+dx, cy=crimer_position[1]+dy;
+                    while (cx >= 0 && cx <= 4 && cy >= 0 && cy <= 4 && !blocked) {
+                        evidence_positions.forEach(function(ep) {
+                            if (ep[0] == cx && ep[1] == cy) blocked = true;
+                        });
+                        if (!blocked) {
+                            squares[cy][cx].classes.push("crimer_possible");
+                            if (!gameover) squares[cy][cx].classes.push("available");
+                            squares[cy][cx].action = {crimer: {kind: "move", dest: [cx, cy]}};
+                        }
+                        cx += dx; cy += dy;
+                    }
+                }
+            }
+            that.statusdiv.innerHTML = "Your move, Criminal!";
+        } else if (crimer_to_move && i_am_detetcive) {
+            that.statusdiv.innerHTML = "Waiting for the Criminal to move!";
+        } else if (i_am_crimer && !crimer_to_move) {
+            that.statusdiv.innerHTML = "Waiting for the Police to move!";
+        } else if (i_am_detetcive && !crimer_to_move) {
+            if (moves[moves.length-1].detetcive && moves[moves.length-1].detetcive.kind == "move") {
+                // last move was a location change: now, plant evidence
+                for (var r=0; r<5; r++) {
+                    for (var c=0; c<5; c++) {
+                        if (crimer_position[0] == c && crimer_position[1] == r) continue;
+                        if (detetcive_position[0] == c && detetcive_position[1] == r) continue;
+                        squares[r][c].classes.push("evidence_possible");
+                        if (!gameover) squares[r][c].classes.push("available");
+                        squares[r][c].action = {detetcive: {kind: "evidence", dest: [c, r]}};
+                    }
+                }
+                that.statusdiv.innerHTML = "Plant evidence, Policeman!";
+            } else {
+                // eight ways from current position
+                for (var dx=-1; dx<2; dx++) {
+                    for (var dy=-1; dy<2; dy++) {
+                        if (dx==0 && dy==0) continue;
+                        var cx = detetcive_position[0]+dx, cy=detetcive_position[1]+dy;
+                        while (cx >= 0 && cx <= 4 && cy >= 0 && cy <= 4) {
+                            squares[cy][cx].classes.push("detetcive_possible");
+                            if (!gameover) squares[cy][cx].classes.push("available");
+                            squares[cy][cx].action = {detetcive: {kind: "move", dest: [cx, cy]}};
+                            cx += dx; cy += dy;
+                        }
+                    }
+                }
+                that.statusdiv.innerHTML = "Your move, Policeman!";
+            }
+        } else {
+            console.log("shouldn't happen??");
+        }
+
+        var trs = tbl.getElementsByTagName("tr");
+        for (var r=0; r<5; r++) {
+            var tds = trs[r].getElementsByTagName("td");
+            for (var c=0; c<5; c++) {
+                tds[c].className = squares[r][c].classes.join(" ");
+                tds[c].setAttribute("data-action",  JSON.stringify(squares[r][c].action));
+            }
+        }
+    }
+
+    elLinkToMe.appendChild(gamewith);
+    elLinkToMe.appendChild(movecount);
+    elLinkToMe.appendChild(whosgo);
+
+    gamewith.nodeValue = "Playing against " + oppoemail + " (I am " + (i_am_crimer ? "the criminal" : "the policeman") + ")";
+
+    announce_and_prepare_for_move(false);
+
+    elLinkToMe.onclick = function() { that.fire("linkToMe"); }
+
+    var movecounter = 0, moves = [], winner = null;
+    dataref.ref().child("moves").on("child_added", function(snapshot) {
+        movecounter += 1;
+        movecount.nodeValue = "(" + movecounter + " moves)";
+        var move = snapshot.val();
+        /* validate move here */
+        var previous_move = moves.length == 0 ? null : moves[moves.length-1];
+        moves.push(move);
+        if (move.crimer) {
+            if (!crimer_to_move) return moveError(move, "Criminal move out of turn");
+            if (move.crimer.kind !== "move") return moveError(move, "bad move type");
+            crimer_position = move.crimer.dest;
+            crimer_to_move = false;
+        } else if (move.detetcive) {
+            if (crimer_to_move) return moveError(move, "Police move out of turn");
+            if (move.detetcive.kind === "move") {
+                // last move should have been crimer
+                if (previous_move.detetcive) return moveError("Police move after police move");
+                detetcive_position = move.detetcive.dest;
+                if (evidence_positions.length == 5) crimer_to_move = true;
+            } else if (move.detetcive.kind === "evidence") {
+                // last move should have been detetcive move
+                if (previous_move.crimer) return moveError("Police plant evidence before moving");
+                if (previous_move.detetcive) {
+                    if (previous_move.detetcive.kind !== "move") {
+                        return moveError("Police plant evidence after evidence");
+                    }
+                }
+                if (evidence_positions.length == 5) return moveError("already planted 5 evidences");
+                if (move.detetcive.dest[0] == -1 && move.detetcive.dest[1] == -1) {
+                    // this is the fake evidence move from game creation. ignore it.
+                } else {
+                    evidence_positions.push(move.detetcive.dest);
+                }
+                crimer_to_move = true;
+            }
+        }
+        var gameover = false, gameovermsg = "";
+        if (crimer_position[0] == detetcive_position[0] && crimer_position[1] == detetcive_position[1]) {
+            gameovermsg = "Police win!";
+            dataref.ref().child("winner").set("detetcive");
+            that.fire("detetciveWins");
+            winner = "detetcive";
+            gameover = true;
+        } else if (moves.length == 29) {
+            // 3x setup moves, 5x(crimer, det, evidence), 5x(crimer, det), 1x crimer
+            gameovemsg = "Criminal wins!";
+            dataref.ref().child("winner").set("crimer");
+            that.fire("crimerWins");
+            winner = "crimer";
+            gameover = true;
+        }
+        announce_and_prepare_for_move(gameover);
+        if (gameover) {
+            that.statusdiv.innerHTML = gameovermsg;
+        }
+    });
+
+}
+
+var db = new Firebase('https://crimer.firebaseIO.com'), games = [], myUserSection,
+    myChallengesReceived, myChallengesSent;
+
+function monitorGames(myemail, oppoemail, initiatedByMe) {
+    var hexme = hex_md5(myemail);
+    var em = [hexme, hex_md5(oppoemail)];
+    em.sort();
+    var gameroot = db.child("games/" + em.join("/"))
+    gameroot.on("child_added", function(snapshot) {
+        var li = document.createElement("li"), div = document.createElement("div"),
+        statusdiv = document.createElement("div");
+        document.querySelector("#games ul").appendChild(li);
+        var g = new Game(snapshot, myemail, oppoemail, li, div, statusdiv);
+        games.push(g);
+        g.on("linkToMe", function() {
+            showPane("game");
+            document.getElementById("cont").innerHTML = "";
+            document.getElementById("cont").appendChild(this.container);
+            document.getElementById("bottom").innerHTML = "";
+            document.getElementById("bottom").appendChild(this.statusdiv);
+            res();
+        });
+    });
+    gameroot.on("value", function(snapshot) {
+        var obj = snapshot.val();
+        for(var prop in obj) {
+            if(obj.hasOwnProperty(prop)) {
+                return;
+            }
+        }
+        // object has no properties: that is: current games list is empty.
+        if (initiatedByMe) {
+            // add one game with me as crimer, and initial moves
+            var ng = gameroot.push({crimer: hexme});
+            ng.child("moves").push({crimer: {kind: "move", dest: [4,4]}});
+            ng.child("moves").push({detetcive: {kind: "move", dest: [0,0]}});
+            ng.child("moves").push({detetcive: {kind: "evidence", dest: [-1,-1]}});
+        }
+
+    })
+}
+
+var auth = new FirebaseAuthClient(db, function(error, user) {
+  if (error) {
+    // an error occurred while attempting login
+    console.log("login error:" + error);
+    document.getElementById("signin-error").innerHTML = error;
+    showPane("login");
+  } else if (user) {
+    // user authenticated with Firebase
+    console.log('logged in OK: User ID: ' + user.id + ', Provider: ' + user.provider);
+    document.getElementById("logout").style.display = "block";
+    document.getElementById("logout-email").firstChild.nodeValue = user.email;
+    document.getElementById("form-challenge").onsubmit = function() {
+        var e = document.getElementById("challenge-email").value;
+        var opporef = db.child("users/" + hex_md5(e) + "/challenges/received/" + hex_md5(user.email));
+        opporef.set({email: user.email});
+        myChallengesSent.child(hex_md5(e)).set({email: e});
+        return false;
+    }
+    myUserSection = db.child("users/" + hex_md5(user.email));
+    myChallengesSent = myUserSection.child("challenges/sent");
+    myChallengesSent.on("child_added", function(snapshot) {
+        var opponent = snapshot.val().email;
+        monitorGames(user.email, opponent, true);
+        console.log("child added to sent:" + opponent);
+    });
+    myChallengesReceived = myUserSection.child("challenges/received");
+    myChallengesReceived.on("child_added", function(snapshot) {
+        var opponent = snapshot.val().email;
+        monitorGames(user.email, opponent, false);
+        console.log("child added to received:" + opponent);
+    });
+    showPane("games");
+    res();
+  } else {
+    // user is logged out
+    document.getElementById("form-signup").onsubmit = function() {
+        var e = document.getElementById("signup-email").value;
+        var p = document.getElementById("signup-password1").value;
+        var p2 = document.getElementById("signup-password2").value;
+        if (p != p2) { alert("passwords do not match"); return false; }
+        auth.createUser(e, p, function(error, user) {
+            if (error) {
+                document.getElementById("signup-error").innerHTML = error;
+            } else {
+                console.log('Return from createUser: User Id: ' + user.id + ', Email: ' + user.email);
+                auth.login('password', {
+                    email: e,
+                    password: p,
+                    rememberMe: true
+                });
+            }
+        });
+        return false;
+    }
+    document.getElementById("form-signin").onsubmit = function() {
+        var e = document.getElementById("signin-email").value;
+        var p = document.getElementById("signin-password").value;
+        auth.login('password', {
+            email: e,
+            password: p,
+            rememberMe: true
+        });
+        return false;
+    }
+    showPane("login");
+  }
+});
+
+// begin
+res();
+
+})();
+</script>
+</body>
+</html>
